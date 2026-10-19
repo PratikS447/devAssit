@@ -1,13 +1,11 @@
 package com.devopsbuddy.model;
 
-public class AskRequest {
-    private String prompt;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
-    public String getPrompt(){
-        return prompt;
-    }
-
-    public void setPrompt(String prompt){
-        this.prompt = prompt;
-    }
+public record AskRequest(
+        @NotBlank(message = "prompt must not be blank")
+        @Size(max = 2000, message = "prompt must be at most 2000 characters")
+        String prompt
+) {
 }

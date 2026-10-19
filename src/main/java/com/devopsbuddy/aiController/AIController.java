@@ -2,65 +2,59 @@ package com.devopsbuddy.aiController;
 
 import com.devopsbuddy.service.CommandExecutor;
 import com.devopsbuddy.service.OllamaService;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.devopsbuddy.model.ApprovalRequest;
+import com.devopsbuddy.model.AskRequest;
+import com.devopsbuddy.model.AskResponse;
+import com.devopsbuddy.model.CommandExecutionResult;
+import com.devopsbuddy.model.CommandOperationView;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Map;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api")
 public class AIController {
-    @Autowired
-    private OllamaService ollamaService;
+    private final OllamaService ollamaService;
+    private final IntentDetector detector;
+    private final CommandExecutor executor;
 
-    @Autowired
-    private IntentDetector detector;
-
-    @Autowired
-    private CommandExecutor executor;
+    public AIController(OllamaService ollamaService, IntentDetector detector, CommandExecutor executor) {
+        this.ollamaService = ollamaService;
+        this.detector = detector;
+        this.executor = executor;
+    }
 
     @PostMapping("/ask")
-    public Map<String, String> ask(@RequestBody Map<String, String> req){
-        try {
-            String prompt = req.get("prompt");
+    public AskResponse ask(@Valid @RequestBody AskRequest request) {
+        String prompt = request.prompt().trim();
+        IntentType type = detector.detect(prompt);
+        String answer = ollamaService.askOllama(prompt, type == IntentType.COMMAND);
 
-            if (prompt == null || prompt.isBlank()){
-                return Map.of(
-                        "response", "prompt required"
-                );
-            }
+        return new AskResponse(
+                type.name(),
+                answer,
+                type == IntentType.COMMAND ? "NOT_EXECUTED" : "NOT_APPLICABLE"
+        );
+    }
 
-            IntentType type = detector.detect(prompt);
+    @GetMapping("/commands")
+    public List<CommandOperationView> availableCommands() {
+        return executor.availableOperations();
+    }
 
-            System.out.println("Prompt : "+prompt);
-            System.out.println("Detector intent : "+type);
-
-            String aiResponse = ollamaService.askOllama(prompt);
-
-            if(type == IntentType.COMMAND){
-                String output = executor.execute(aiResponse);
-
-                return Map.of(
-                        "intent", "COMMAND",
-                        "command", aiResponse,
-                        "output", output
-                );
-            }
-
-            return Map.of(
-                    "intent", type.name(),
-                    "response", aiResponse
-            );
-        }catch (Exception e){
-            e.printStackTrace();
-
-            return Map.of(
-                    "intent","ERROR",
-                    "response",e.getMessage()
-            );
+    @PostMapping("/commands/{operationId}/approve")
+    public CommandExecutionResult approveAndExecute(
+            @PathVariable String operationId,
+            @Valid @RequestBody ApprovalRequest approval) {
+        if (!Boolean.TRUE.equals(approval.approved())) {
+            throw new CommandExecutor.ApprovalRequiredException();
         }
+        return executor.executeApproved(operationId);
     }
 }
